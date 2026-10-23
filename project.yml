@@ -1,0 +1,36 @@
+name: NewsReaderIOS
+options:
+  bundleIdPrefix: com.rodrigosambade
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  NewsCore:
+    path: .
+targets:
+  NewsReaderIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Sources/NewsApp
+    dependencies:
+      - package: NewsCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rodrigosambade.noticias.muyinteresante.ios
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+    info:
+      path: Sources/NewsApp/Info.plist
+      properties:
+        CFBundleDisplayName: "Muy Interesante"
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+schemes:
+  NewsReaderIOS:
+    build:
+      targets:
+        NewsReaderIOS: all

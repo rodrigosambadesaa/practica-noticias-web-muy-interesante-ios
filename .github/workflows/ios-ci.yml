@@ -1,0 +1,37 @@
+name: iOS build and tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          brew install xcodegen
+      - name: Swift Package unit tests (offline fixtures)
+        run: swift test --parallel
+      - name: Generate native Xcode project
+        run: xcodegen generate --spec project.yml
+      - name: Build iOS Simulator application
+        run: |
+          xcodebuild -project NewsReaderIOS.xcodeproj -scheme NewsReaderIOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Upload simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: build/DerivedData/Build/Products/Debug-iphonesimulator/NewsReaderIOS.app
+          if-no-files-found: error

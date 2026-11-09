@@ -11,7 +11,10 @@ final class NewsViewModel: ObservableObject {
     @Published var loading = false
     @Published var loadingMore = false
     @Published var networkStatus = "Comprobando conexión…"
-    @Published var diagnosticMessage: String?
+    @Published var diagnosticReport: ConnectivityReport?
+    @Published var isDiagnosing = false
+    @Published var showDiagnostics = false
+    @Published var networkSnapshot: NetworkSnapshot?
     @Published var alertMessage: String?
 
     let settings: FeedSettings
@@ -30,6 +33,7 @@ final class NewsViewModel: ObservableObject {
         observer.onUpdate = { [weak self] snapshot in
             Task { @MainActor [weak self] in
                 self?.networkStatus = snapshot.description
+                self?.networkSnapshot = snapshot
             }
         }
         observer.start()
@@ -120,22 +124,12 @@ final class NewsViewModel: ObservableObject {
         }
     }
 
+    /// Triggered exclusively by the visible diagnostics screen, not per RSS item.
     func runDiagnostics() async {
-        guard diagnosticMessage == nil else { return }
-        let report = await diagnostics.diagnose()
-        diagnosticMessage = """
-        HTTP(S): \(report.https ? "Accesible" : "Sin respuesta")
-        DNS: \(report.dns ? "Responde" : "Sin respuesta")
-        TCP: \(report.tcp ? "Conecta" : "Sin respuesta")
-        TLS: \(report.tls ? "Conecta" : "Sin respuesta")
-        NTP: \(report.ntp ? "Responde" : "Bloqueado o no disponible")
-        Motor compartido: \(report.sharedProbe.stage.description) · \(report.sharedProbe.isReachable ? "sonda positiva" : "sin confirmación")
-        Sonda de portal cautivo: \(report.portalProbe.isReachable ? "endpoint de prueba accesible" : "no concluyente")
-        Tiempo: \(String(format: "%.1f", report.elapsed)) s
-
-        \(report.https ? "Hay acceso web HTTPS general. Esto no garantiza que el feed funcione." : "No se ha confirmado acceso web general. DNS/TCP por sí solos no prueban Internet HTTPS.")
-        """
+        guard !isDiagnosing else { return }
+        isDiagnosing = true
+        defer { isDiagnosing = false }
+        diagnosticReport = await diagnostics.diagnose()
     }
 
-    func dismissDiagnostics() { diagnosticMessage = nil }
 }

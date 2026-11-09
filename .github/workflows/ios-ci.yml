@@ -21,6 +21,13 @@ jobs:
           brew install xcodegen
       - name: Swift Package unit tests (offline fixtures)
         run: swift test --parallel
+      - name: Verify pinned shared connectivity library and its offline tests
+        run: |
+          CHECKOUT="$(find .build/checkouts -mindepth 1 -maxdepth 1 -type d -iname '*connectivityandinternetaccess*' -print -quit)"
+          test -n "$CHECKOUT"
+          test "$(git -C "$CHECKOUT" rev-parse HEAD)" = "b31a010cc2bcafde10e23cbf774c837ef4a34774"
+          swift test --package-path "$CHECKOUT" --parallel \
+            --filter 'ConnectivityBuilderTests|DiagnosticEngineTests|IntegrationTests|NetworkObserverTests|NetworkStateTests|StrictPortalValidationTests'
       - name: Generate native Xcode project
         run: xcodegen generate --spec project.yml
       - name: Build iOS Simulator application
@@ -58,9 +65,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v0.2.0-${GITHUB_SHA:0:7}"
+          TAG="v0.3.0-${GITHUB_SHA:0:7}"
           gh release create "$TAG" simulator/NewsReaderIOS-simulator.zip simulator/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "iOS RSS connectivity integration (${GITHUB_SHA:0:7})" \
+            --title "Full iOS RSS connectivity diagnostics (${GITHUB_SHA:0:7})" \
             --notes "SwiftUI RSS reader with shared ConnectivityAndInternetAccess package. CI-built iOS Simulator .app only; not a signed IPA or App Store build. Includes SHA-256 checksum." \
             --prerelease

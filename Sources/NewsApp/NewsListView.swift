@@ -50,6 +50,7 @@ struct NewsListView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        viewModel.showDiagnostics = true
                         Task { await viewModel.runDiagnostics() }
                     } label: { Image(systemName: "network.badge.shield.half.filled") }
                     .accessibilityLabel("Diagnosticar conexión")
@@ -70,13 +71,8 @@ struct NewsListView: View {
             } message: {
                 Text(viewModel.alertMessage ?? "")
             }
-            .alert("Diagnóstico de conectividad", isPresented: Binding(
-                get: { viewModel.diagnosticMessage != nil },
-                set: { if !$0 { viewModel.dismissDiagnostics() } }
-            )) {
-                Button("Cerrar") { viewModel.dismissDiagnostics() }
-            } message: {
-                Text(viewModel.diagnosticMessage ?? "")
+            .sheet(isPresented: $viewModel.showDiagnostics) {
+                ConnectivityDiagnosticsView(viewModel: viewModel)
             }
             .task { await viewModel.start() }
         }

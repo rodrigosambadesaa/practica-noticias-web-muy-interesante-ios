@@ -35,3 +35,32 @@ jobs:
           name: ios-simulator-app
           path: build/DerivedData/Build/Products/Debug-iphonesimulator/NewsReaderIOS.app
           if-no-files-found: error
+
+  publish-simulator-release:
+    name: Publish tested simulator prerelease
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified app
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: simulator/NewsReaderIOS.app
+      - name: Archive and checksum simulator app
+        run: |
+          cd simulator
+          zip -qry NewsReaderIOS-simulator.zip NewsReaderIOS.app
+          sha256sum NewsReaderIOS-simulator.zip > SHA256SUMS.txt
+      - name: Publish prerelease for this verified commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v0.2.0-${GITHUB_SHA:0:7}"
+          gh release create "$TAG" simulator/NewsReaderIOS-simulator.zip simulator/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "iOS RSS connectivity integration (${GITHUB_SHA:0:7})" \
+            --notes "SwiftUI RSS reader with shared ConnectivityAndInternetAccess package. CI-built iOS Simulator .app only; not a signed IPA or App Store build. Includes SHA-256 checksum." \
+            --prerelease

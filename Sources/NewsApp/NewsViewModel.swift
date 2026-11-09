@@ -129,6 +129,8 @@ final class NewsViewModel: ObservableObject {
         TCP: \(report.tcp ? "Conecta" : "Sin respuesta")
         TLS: \(report.tls ? "Conecta" : "Sin respuesta")
         NTP: \(report.ntp ? "Responde" : "Bloqueado o no disponible")
+        Motor compartido: \(report.sharedProbe.stage.description) · \(report.sharedProbe.isReachable ? "sonda positiva" : "sin confirmación")
+        Sonda de portal cautivo: \(report.portalProbe.isReachable ? "endpoint de prueba accesible" : "no concluyente")
         Tiempo: \(String(format: "%.1f", report.elapsed)) s
 
         \(report.https ? "Hay acceso web HTTPS general. Esto no garantiza que el feed funcione." : "No se ha confirmado acceso web general. DNS/TCP por sí solos no prueban Internet HTTPS.")

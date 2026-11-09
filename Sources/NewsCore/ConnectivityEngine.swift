@@ -1,4 +1,5 @@
 import Foundation
+import ConnectivityAndInternetAccess
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -6,8 +7,7 @@ import FoundationNetworking
 import Network
 import Darwin
 
-/// iOS counterpart of the Android connectivity utility. Reachability is a hint,
-/// not a guarantee that the news server or the physical network is trustworthy.
+/// NWPath is a routing hint, never proof of HTTPS access or portal absence.
 public struct NetworkSnapshot: Sendable, Equatable {
     public let available: Bool
     public let wifi: Bool
@@ -15,34 +15,40 @@ public struct NetworkSnapshot: Sendable, Equatable {
     public let expensive: Bool
     public let constrained: Bool
 
+    public init(state: NetworkState) {
+        available = state.isConnected
+        wifi = state.interfaceType == .wifi
+        cellular = state.interfaceType == .cellular
+        expensive = state.isExpensive
+        constrained = state.isConstrained
+    }
+
     public var description: String {
         guard available else { return "Sin conexión de red detectada" }
-        let route = wifi ? "Wi-Fi" : cellular ? "Datos móviles" : "Otra conexión"
+        let route = wifi ? "Wi-Fi" : (cellular ? "Datos móviles" : "Otra conexión")
         return route + (constrained ? " · modo de datos reducidos" : "")
-                    + (expensive ? " · red de coste elevado" : "")
+                     + (expensive ? " · red de coste elevado" : "")
     }
 }
 
-/// Passive OS observation; does not open sockets, ping or request web pages.
-public final class NetworkPathObserver {
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "news.network.path")
+/// Adapter to the shared package's single passive observer; no second NWPathMonitor.
+public final class NetworkPathObserver: @unchecked Sendable {
     public var onUpdate: ((NetworkSnapshot) -> Void)?
+    private var token: NetworkObserverToken?
 
     public init() {}
+    /// Called on the main actor by NewsViewModel; callbacks arrive on the main queue.
     public func start() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            let snapshot = NetworkSnapshot(
-                available: path.status == .satisfied,
-                wifi: path.usesInterfaceType(.wifi),
-                cellular: path.usesInterfaceType(.cellular),
-                expensive: path.isExpensive,
-                constrained: path.isConstrained)
-            self?.onUpdate?(snapshot)
+        guard token == nil else { return }
+        token = ConnectivityAndInternetAccess.observeNetwork { [weak self] state in
+            self?.onUpdate?(NetworkSnapshot(state: state))
         }
-        monitor.start(queue: queue)
     }
-    public func stop() { monitor.cancel() }
+    public func stop() {
+        token?.close()
+        token = nil
+    }
+    deinit { token?.close() }
 }
 
 public struct ConnectivityReport: Sendable {
@@ -52,13 +58,21 @@ public struct ConnectivityReport: Sendable {
     public let tls: Bool
     public let ntp: Bool
     public let elapsed: TimeInterval
+    public let sharedProbe: ReachabilityResult
+    public let portalProbe: ReachabilityResult
 
-    /// Only a real HTTPS response establishes general web access.
+    /// The feed itself is the primary check; DNS and path availability are only hints.
     public var webAvailable: Bool { https }
+
+    /// A successful DNS stage must never be classified as HTTPS reachability.
+    public static func provesHTTPS(_ result: ReachabilityResult) -> Bool {
+        result.isReachable && result.stage == .httpProbe &&
+            (result.reachedHost?.hasPrefix("https://") ?? false)
+    }
 }
 
-/// Multi-layer active diagnostics are opt-in or run after ambiguous feed errors.
-/// One active manual report at a time and at most five parallel probes.
+/// Active probes run only on explicit request or after a transport error.
+/// The original DNS / TCP / TLS / NTP tests remain available alongside the shared package.
 public actor ConnectivityEngine {
     private var inFlight: Task<ConnectivityReport, Never>?
 
@@ -73,13 +87,15 @@ public actor ConnectivityEngine {
         return result
     }
 
-    /// Post-failure classifier only. Never call before downloading RSS or images.
+    /// Do not preflight each RSS request: the actual HTTPS feed transfer comes first.
     public func webAvailableAfterFeedFailure() async -> Bool {
         await Self.probeHTTPS()
     }
 
     private static func runDiagnostic() async -> ConnectivityReport {
         let start = Date()
+        async let shared = ConnectivityAndInternetAccess().checkInternetAsync()
+        async let portal = ConnectivityAndInternetAccess.strictCaptivePortalBuilder().build().checkInternetAsync()
         async let https = probeHTTPS()
         async let dns = probeDNS("www.apple.com")
         async let tcp = probeConnection("1.1.1.1", port: 443, tls: false)
@@ -87,24 +103,35 @@ public actor ConnectivityEngine {
         async let ntp = probeNTP("time.google.com")
         return await ConnectivityReport(
             https: https, dns: dns, tcp: tcp, tls: tls, ntp: ntp,
-            elapsed: Date().timeIntervalSince(start))
+            elapsed: Date().timeIntervalSince(start),
+            sharedProbe: shared, portalProbe: portal
+        )
     }
 
+    /// Only a verified HTTPS response (not DNS, TCP, or an HTTP captive-portal page)
+    /// counts as proof of general web connectivity.
     private static func probeHTTPS() async -> Bool {
-        for url in ["https://www.apple.com/library/test/success.html",
-                    "https://www.google.com/generate_204"] {
-            guard let endpoint = URL(string: url) else { continue }
+        let endpoints: [(String, Int)] = [
+            ("https://www.google.com/generate_204", 204),
+            ("https://www.apple.com/library/test/success.html", 200)
+        ]
+        for (address, expectedCode) in endpoints {
+            guard let url = URL(string: address) else { continue }
             let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = 4
             config.timeoutIntervalForResource = 4
             let session = URLSession(configuration: config)
             defer { session.invalidateAndCancel() }
-            var request = URLRequest(url: endpoint)
+            var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            request.setValue("NewsReader-iOS/1.0", forHTTPHeaderField: "User-Agent")
-            if let (_, response) = try? await session.data(for: request),
-               let http = response as? HTTPURLResponse,
-               (200...399).contains(http.statusCode) { return true }
+            request.setValue("NewsReader-iOS/1.1", forHTTPHeaderField: "User-Agent")
+            guard let (data, response) = try? await session.data(for: request),
+                  let http = response as? HTTPURLResponse,
+                  http.statusCode == expectedCode,
+                  http.url?.host == url.host else { continue }
+            if expectedCode == 204 { return true }
+            if String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) == "Success" { return true }
         }
         return false
     }

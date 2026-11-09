@@ -1,5 +1,6 @@
 import SwiftUI
 import NewsCore
+import ConnectivityAndInternetAccess
 
 /// A dedicated screen is needed: a short alert hides most diagnostic output.
 struct ConnectivityDiagnosticsView: View {

@@ -14,6 +14,8 @@ public struct NetworkSnapshot: Sendable, Equatable {
     public let cellular: Bool
     public let expensive: Bool
     public let constrained: Bool
+    public let interfaceName: String
+    public let observedAt: Date
 
     public init(state: NetworkState) {
         available = state.isConnected
@@ -21,6 +23,8 @@ public struct NetworkSnapshot: Sendable, Equatable {
         cellular = state.interfaceType == .cellular
         expensive = state.isExpensive
         constrained = state.isConstrained
+        interfaceName = state.interfaceType.description
+        observedAt = state.timestamp
     }
 
     public var description: String {
@@ -94,8 +98,21 @@ public actor ConnectivityEngine {
 
     private static func runDiagnostic() async -> ConnectivityReport {
         let start = Date()
-        async let shared = ConnectivityAndInternetAccess().checkInternetAsync()
-        async let portal = ConnectivityAndInternetAccess.strictCaptivePortalBuilder().build().checkInternetAsync()
+        // Use the complete, configurable SPM engine: system DNS -> direct UDP
+        // resolvers -> HTTP fallback. DNS-only success never proves HTTPS.
+        let generalEngine = ConnectivityAndInternetAccess.Builder()
+            .setSystemDNSHost("example.com")
+            .setDnsResolvers(["1.1.1.1", "8.8.8.8", "9.9.9.9", "208.67.222.222"])
+            .setHosts([
+                "https://www.google.com/generate_204",
+                "https://www.apple.com/library/test/success.html",
+                "https://www.cloudflare.com/cdn-cgi/trace"
+            ])
+            .setGlobalTimeout(2.5)
+            .build()
+        let portalEngine = ConnectivityAndInternetAccess.strictCaptivePortalBuilder().build()
+        async let shared = generalEngine.checkInternetAsync()
+        async let portal = portalEngine.checkInternetAsync()
         async let https = probeHTTPS()
         async let dns = probeDNS("www.apple.com")
         async let tcp = probeConnection("1.1.1.1", port: 443, tls: false)

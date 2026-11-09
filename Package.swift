@@ -6,9 +6,9 @@ let package = Package(
     platforms: [.iOS(.v16), .macOS(.v13)],
     products: [.library(name: "NewsCore", targets: ["NewsCore"])],
     dependencies: [
-        // Pin an audited commit: upstream currently does not publish the README's 1.0.0 tag.
+        // Pin the reviewed, CI-tested upstream commit; no stable version tag exists yet.
         .package(url: "https://github.com/rodrigosambadesaa/ConnectivityAndInternetAccess-iOS-mobile.git",
-                 revision: "1803edfc3becb2a5b011569ca73f974ad24736f3")
+                 revision: "b31a010cc2bcafde10e23cbf774c837ef4a34774")
     ],
     targets: [
         .target(
